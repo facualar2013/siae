@@ -4,6 +4,29 @@ import os
 import pandas as pd
 import streamlit as st
 
+ARCHIVO_USUARIOS = "usuarios.csv"
+
+def cargar_usuarios():
+    """Lee el archivo CSV de usuarios o crea uno de prueba si no existe."""
+    if not os.path.exists(ARCHIVO_USUARIOS):
+        # Creamos un CSV de prueba con el formato de usuario requerido (minúsculas y números)
+        df_demo = pd.DataFrame([
+            {"usuario": "director1", "clave": "admin123", "rol": "directivo", "nombre": "Director General"},
+            {"usuario": "juan2024", "clave": "juan123", "rol": "preceptor", "nombre": "Preceptor Juan"},
+            {"usuario": "ana123", "clave": "profe2024", "rol": "profesor", "nombre": "Prof. Ana López"}
+        ])
+        df_demo.to_csv(ARCHIVO_USUARIOS, index=False, encoding="utf-8-sig")
+        return df_demo
+    
+    return pd.read_csv(ARCHIVO_USUARIOS, encoding="utf-8-sig")
+
+# --- PERMISOS POR ROL (Mantenemos esto en el código por seguridad) ---
+PERMISOS_ROLES = {
+    "directivo": ["inicio", "alumnos", "tomar_asistencia", "ver_asistencia", "retiros_main", "registrar_retiro", "ver_retiros"],
+    "preceptor": ["inicio", "alumnos", "tomar_asistencia", "ver_asistencia", "retiros_main", "registrar_retiro", "ver_retiros"],
+    "profesor": ["inicio", "tomar_asistencia", "ver_asistencia"] 
+}
+
 # Configuración de página
 st.set_page_config(
     page_title="Sistema de Gestión Escolar",
@@ -94,21 +117,60 @@ def leer_alumnos_curso(anio, division):
     return None
 
 
+# --- NAVEGACIÓN Y SESIÓN ---
+if "autenticado" not in st.session_state:
+    st.session_state.autenticado = False
+if "usuario_actual" not in st.session_state:
+    st.session_state.usuario_actual = None
+if "pantalla" not in st.session_state:
+    st.session_state.pantalla = "inicio"
+
+def cambiar_pantalla(nombre_pantalla):
+    st.session_state.pantalla = nombre_pantalla
+    st.rerun()
+
 # --- CONTROL DE ACCESO ---
 if not st.session_state.autenticado:
-  st.title("🔒 Control de Acceso")
-  with st.container(border=True):
-    clave = st.text_input("Ingrese la contraseña:", type="password")
-    if st.button(
-        "Ingresar al Sistema", use_container_width=True, key="btn_login"
-    ):
-      if clave == CONTRASEÑA_CORRECTA:
-        st.session_state.autenticado = True
-        st.session_state.pantalla = "inicio"
-        st.rerun()
-      else:
-        st.error("Contraseña incorrecta.")
-  st.stop()
+    st.title("🔒 Acceso al Sistema")
+    with st.container(border=True):
+        st.caption("Formato de usuario: minúsculas y números (ej: pepito123)")
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            # Forzamos minúsculas y quitamos espacios en blanco
+            usuario_input = st.text_input("Usuario:").strip().lower()
+        with col2:
+            clave_input = st.text_input("Contraseña:", type="password")
+            
+        if st.button("Ingresar", use_container_width=True, type="primary"):
+            # Validación 1: Verificar el formato del usuario ("pepito123" -> solo letras y números)
+            if not usuario_input.isalnum():
+                st.error("⚠️ El usuario solo debe contener letras y números, sin espacios ni símbolos especiales.")
+            else:
+                # Validación 2: Buscar en el CSV
+                df_usuarios = cargar_usuarios()
+                
+                # Buscamos si existe una fila que coincida con el usuario y la clave
+                usuario_valido = df_usuarios[
+                    (df_usuarios['usuario'] == usuario_input) & 
+                    (df_usuarios['clave'] == clave_input)
+                ]
+                
+                if not usuario_valido.empty:
+                    # Convertimos la fila del dataframe a un diccionario
+                    datos_usuario = usuario_valido.iloc[0].to_dict()
+                    
+                    st.session_state.autenticado = True
+                    st.session_state.usuario_actual = datos_usuario
+                    st.session_state.pantalla = "inicio"
+                    st.rerun()
+                else:
+                    st.error("❌ Usuario o contraseña incorrectos.")
+    st.stop() # Detiene la ejecución si no está logueado
+
+# Obtenemos los permisos del usuario logueado para usarlos en el menú y los paneles
+rol_usuario = st.session_state.usuario_actual["rol"]
+permisos_usuario = PERMISOS_ROLES.get(rol_usuario, [])
 
 # ==========================================
 # MENÚ LATERAL
